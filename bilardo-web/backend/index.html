@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3 Bant Bilardo</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Authentication Screen -->
+    <div id="auth-container">
+        <h2>Bilardo Giriş</h2>
+        <form id="auth-form" onsubmit="return false;">
+            <div class="form-group">
+                <input type="text" id="username" name="username" autocomplete="username" placeholder="Kullanıcı Adı" required>
+            </div>
+            <div class="form-group">
+                <input type="password" id="password" name="password" autocomplete="current-password" placeholder="Şifre" required>
+            </div>
+            <button id="login-btn" type="button">Giriş Yap</button>
+            <button id="register-btn" type="button">Kayıt Ol</button>
+        </form>
+        <p id="auth-message"></p>
+    </div>
+
+    <!-- Lobby Screen (Hidden by default) -->
+    <div id="lobby-container" style="display: none;">
+        <h2>Oyun Lobisi</h2>
+        <p>Hoş geldin, <span id="logged-in-user"></span>!</p>
+        <p id="online-users-count" style="color: #2ecc71; font-weight: bold; margin-bottom: 15px;">🟢 Çevrimiçi Oyuncular: <span id="online-count-number">0</span></p>
+        
+        <div class="room-controls">
+            <div>
+                <select id="create-room-mode" style="width: auto; display: inline-block; padding: 0.75rem; border-radius: 4px;"><option value="3-cushion">3 Bant Modu</option><option value="karambol">Karambol Modu</option><option value="8-ball">8 Top Modu</option><option value="9-ball">9 Top Modu</option><option value="15-ball">15 Top Modu</option><option value="snooker">Snooker Modu</option></select>
+                <input type="password" id="create-room-password" placeholder="Oda Şifresi (İsteğe Bağlı)" style="width: auto; display: inline-block;">
+                <button id="create-room-btn">Yeni Oda Kur</button>
+                <button id="practice-room-btn" style="background-color: #2ecc71;">Tek Oyunculu (Pratik)</button>
+            </div>
+            <div style="margin-top: 1rem;">
+                <input type="text" id="room-id-input" placeholder="Oda Kodunu Girin" style="width: auto; display: inline-block;">
+                <input type="password" id="join-room-password" placeholder="Şifre (Varsa)" style="width: auto; display: inline-block;">
+                <button id="join-room-btn">Odaya Katıl</button>
+            </div>
+        </div>
+        
+        <button id="show-profile-btn" style="background-color: #9b59b6; margin-top: 15px;">Profilim</button>
+        
+        <div id="profile-section" style="display: none; margin-top: 20px; background-color: #2c3e50; padding: 15px; border-radius: 5px;">
+            <h3 style="margin-top: 0; color: #f1c40f;">👤 Profili Özelleştir</h3>
+            <input type="text" id="avatar-url-input" placeholder="Avatar Görsel Linki (örn: Imgur)" style="margin-bottom: 10px;">
+            <select id="cue-select-input" style="width: 100%; padding: 0.75rem; border-radius: 4px; margin-bottom: 10px; border: none;">
+                <option value="standard">Standart Ahşap Istaka</option>
+                <option value="carbon">Karbon Fiber Istaka</option>
+                <option value="gold">Saf Altın Istaka</option>
+                <option value="neon">Neon Siberpunk Istaka</option>
+                <option value="sapphire">Safir Istaka</option>
+                <option value="magma">Magma Istaka</option>
+                <option value="toxic">Toksik Istaka</option>
+            </select>
+            <canvas id="cue-preview-canvas" width="300" height="30" style="width: 100%; background-color: #34495e; border-radius: 4px; margin-bottom: 10px; box-shadow: inset 0 0 10px rgba(0,0,0,0.5);"></canvas>
+            <button id="save-profile-btn" style="background-color: #3498db; width: 100%; margin: 0;">Profili Kaydet</button>
+            <p id="profile-message" style="margin-top: 10px; font-weight: bold;"></p>
+        </div>
+
+        <button id="show-leaderboard-btn" style="background-color: #f39c12; margin-top: 15px;">Sıralamayı Görüntüle</button>
+        
+        <div id="leaderboard-section" style="display: none; margin-top: 20px; background-color: #2c3e50; padding: 15px; border-radius: 5px;">
+            <h3 style="margin-top: 0; color: #f1c40f;">🏆 En İyi 10 Oyuncu 🏆</h3>
+            <ol id="leaderboard-list" style="text-align: left; margin: 0; padding-left: 20px; font-weight: bold;"></ol>
+        </div>
+
+        <p id="lobby-message"></p>
+
+        <button id="logout-btn">Çıkış Yap</button>
+    </div>
+
+    <!-- Game Room Screen (Hidden by default) -->
+    <div id="game-container" style="display: none;">
+        <h2>Oda Kodu: <span id="current-room-id" style="color: #2ecc71; padding: 2px 8px; background-color: #2c3e50; border-radius: 4px; user-select: all;" title="Kopyalamak için tıklayın"></span> (<span id="current-room-mode"></span>)</h2>
+        <p>Odadaki Oyuncular:</p>
+        <ul id="players-list"></ul>
+        
+        <div id="invite-controls" style="margin-bottom: 15px;">
+            <input type="text" id="invite-username" placeholder="Kullanıcı Adı ile Davet Et" style="width: auto; display: inline-block;">
+            <button id="send-invite-btn" style="background-color: #3498db; margin-right: 10px;">Davet Gönder</button>
+        </div>
+
+        <div>
+            <button id="pause-game-btn" style="background-color: #3498db; margin-right: 10px;">Oyunu Duraklat</button>
+            <button id="restart-game-btn" style="background-color: #f39c12; margin-right: 10px;">Maçı Yeniden Başlat</button>
+            <input type="color" id="table-color-picker" value="#27ae60" style="width: 40px; height: 35px; vertical-align: middle; cursor: pointer; border: none; background: none; margin-right: 10px;" title="Masa Rengini Değiştir">
+            <label style="color: white; margin-right: 10px; cursor: pointer; font-weight: bold;"><input type="checkbox" id="sound-toggle" checked style="width: auto;"> 🔊 Ses</label>
+            <label style="color: white; margin-right: 10px; cursor: pointer; font-weight: bold;"><input type="checkbox" id="pockets-toggle" style="width: auto;"> ⚫ Cepler</label>
+            <button id="leave-room-btn" style="background-color: #e74c3c;">Odadan Ayrıl</button>
+        </div>
+        
+        <!-- Scoreboard UI -->
+        <div id="scoreboard" style="display: flex; justify-content: space-between; align-items: center; background-color: #2c3e50; padding: 10px 20px; border-radius: 5px; margin-top: 15px;">
+            <div style="color: #ffffff; font-size: 1.2rem; font-weight: bold; display: flex; align-items: center;">
+                <img id="p1-avatar" src="" class="glowing-avatar" style="width: 45px; height: 45px; border-radius: 50%; margin-right: 10px; display: none; object-fit: cover;">
+                <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                    <div><span id="p1-name-display">P1 (Beyaz): </span>&nbsp;<span id="p1-score">0</span></div>
+                    <span id="p1-ping-display" style="font-size: 0.8rem; font-weight: normal; color: #bdc3c7; margin-top: 4px;"></span>
+                </div>
+            </div>
+            <div id="turn-indicator" style="color: #ecf0f1; font-size: 1.2rem; font-weight: bold;">Oyuncu 2 Bekleniyor...</div>
+            <div style="color: #f1c40f; font-size: 1.2rem; font-weight: bold; display: flex; align-items: center;">
+                <div style="display: flex; flex-direction: column; align-items: flex-end;">
+                    <div><span id="p2-name-display">P2 (Sarı): </span>&nbsp;<span id="p2-score">0</span></div>
+                    <span id="p2-ping-display" style="font-size: 0.8rem; font-weight: normal; color: #bdc3c7; margin-top: 4px;"></span>
+                </div>
+                <img id="p2-avatar" src="" class="glowing-avatar" style="width: 45px; height: 45px; border-radius: 50%; margin-left: 10px; display: none; object-fit: cover;">
+            </div>
+        </div>
+
+        <!-- Canvas Engine -->
+        <div style="margin-top: 20px; position: relative; display: inline-block; max-width: 100%;">
+            <canvas id="game-canvas" width="800" height="400" style="background-color: #27ae60; border: 25px solid #8e44ad; border-radius: 15px; box-shadow: inset 0 0 30px rgba(0,0,0,0.8), 0 10px 20px rgba(0,0,0,0.5); display: block; max-width: 100%; height: auto; touch-action: none;"></canvas>
+            <!-- Game Over Overlay -->
+            <div id="game-over-screen" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); flex-direction: column; justify-content: center; align-items: center; border-radius: 5px; z-index: 10;">
+                <h1 id="game-over-text" style="color: #f1c40f; font-size: 3rem; margin-bottom: 20px; text-align: center; text-shadow: 2px 2px 4px #000;">Kazandın!</h1>
+                <button id="overlay-rematch-btn" style="background-color: #2ecc71; font-size: 1.5rem; padding: 15px 40px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">Rövanş</button>
+            </div>
+        </div>
+
+        <!-- Chat Box -->
+        <div id="chat-container" style="margin-top: 20px; background-color: #2c3e50; padding: 15px; border-radius: 5px; text-align: left;">
+            <div id="reactions-bar" style="margin-bottom: 10px;">
+                <button class="reaction-btn" style="margin: 0 5px 0 0; padding: 5px 10px; background-color: #34495e;">😂</button>
+                <button class="reaction-btn" style="margin: 0 5px 0 0; padding: 5px 10px; background-color: #34495e;">😡</button>
+                <button class="reaction-btn" style="margin: 0 5px 0 0; padding: 5px 10px; background-color: #34495e;">🎯</button>
+                <button class="reaction-btn" style="margin: 0 5px 0 0; padding: 5px 10px; background-color: #34495e;">🔥</button>
+                <button class="reaction-btn" style="margin: 0 5px 0 0; padding: 5px 10px; background-color: #34495e;">🎱</button>
+                <button class="reaction-btn" style="margin: 0 5px 0 0; padding: 5px 10px; background-color: #34495e;">👏</button>
+            </div>
+            <div id="chat-messages" style="height: 120px; overflow-y: auto; background-color: #34495e; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 0.9rem;"></div>
+            <div style="display: flex;">
+                <input type="text" id="chat-input" placeholder="Bir mesaj yazın..." style="flex-grow: 1; margin-right: 10px; padding: 8px; border-radius: 4px; border: none;">
+                <button id="send-chat-btn" style="margin: 0; padding: 8px 15px; background-color: #3498db;">Gönder</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="ui.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
