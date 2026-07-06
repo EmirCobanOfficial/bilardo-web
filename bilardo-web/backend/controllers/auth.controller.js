@@ -8,6 +8,12 @@ const jwt = require('jsonwebtoken');
 exports.register = async (req, res) => {
   const { username, password } = req.body;
 
+  // M1: reject non-string inputs so MongoDB operators (e.g. {"$ne": null})
+  // can't be smuggled into the query via a JSON object value.
+  if (typeof username !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ message: 'Invalid input' });
+  }
+
   try {
     // Check if user already exists
     const userExists = await User.findOne({ username });
@@ -30,8 +36,9 @@ exports.register = async (req, res) => {
       userId: user._id,
     });
   } catch (error) {
-    console.error('Registration Error Details:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    // L1: log details server-side, return a generic message to the client.
+    console.error('Registration Error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -40,6 +47,11 @@ exports.register = async (req, res) => {
 // @access  Public
 exports.login = async (req, res) => {
   const { username, password } = req.body;
+
+  // M1: reject non-string inputs (NoSQL operator injection guard).
+  if (typeof username !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ message: 'Invalid credentials' });
+  }
 
   try {
     // Check if user exists
@@ -56,10 +68,12 @@ exports.login = async (req, res) => {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
-    // User matched, create JWT payload
+    // User matched, create JWT payload. The username is embedded so that both
+    // the Express and Socket.IO auth guards can derive identity from the token.
     const payload = {
       user: {
         id: user.id,
+        username: user.username,
       },
     };
 
@@ -79,27 +93,43 @@ exports.login = async (req, res) => {
       }
     );
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Login Error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 };
 
-// @desc    Update user profile
+// @desc    Update the authenticated user's profile
 // @route   PUT /api/auth/profile
-// @access  Public (Simplified for MVP)
+// @access  Private (requires a valid JWT)
 exports.updateProfile = async (req, res) => {
-  const { username, avatarUrl, equippedCue } = req.body;
+  // H3: identity comes from the verified token (authRequired middleware),
+  // never from the request body — a user can only update their own profile.
+  const username = req.user.username;
+  const { avatarUrl, equippedCue } = req.body;
+
+  // M1: only accept string values for the updatable fields.
+  const updates = {};
+  if (avatarUrl !== undefined) {
+    if (typeof avatarUrl !== 'string') return res.status(400).json({ message: 'Invalid input' });
+    updates.avatarUrl = avatarUrl;
+  }
+  if (equippedCue !== undefined) {
+    if (typeof equippedCue !== 'string') return res.status(400).json({ message: 'Invalid input' });
+    updates.equippedCue = equippedCue;
+  }
 
   try {
     const user = await User.findOneAndUpdate(
       { username },
-      { avatarUrl, equippedCue },
+      updates,
       { new: true }
     );
-    
+
     if (!user) return res.status(404).json({ message: 'User not found' });
-    
+
     res.json({ message: 'Profile updated successfully', user });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Update Profile Error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 };

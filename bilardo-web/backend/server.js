@@ -7,6 +7,7 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
+const { verifyToken } = require('./middleware/auth.middleware');
 
 // Load environment variables from .env file
 dotenv.config();
@@ -22,16 +23,23 @@ const app = express();
 // Middleware to parse JSON bodies
 app.use(express.json());
 
+// M3: restrict CORS to explicitly-allowed origins (comma-separated in
+// CLIENT_ORIGINS; defaults to the local dev origin).
+const allowedOrigins = (process.env.CLIENT_ORIGINS || 'http://localhost:3000')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 // Enable CORS for frontend communication
-app.use(cors());
+app.use(cors({ origin: allowedOrigins }));
 
 // Create HTTP server and wrap the Express app
 const server = http.createServer(app);
 
-// Initialize Socket.io with CORS enabled
+// Initialize Socket.io with CORS restricted to the same allow-list
 const io = new Server(server, {
   cors: {
-    origin: '*', // Allow frontend to connect
+    origin: allowedOrigins,
   }
 });
 
@@ -66,19 +74,50 @@ const roomPlayers = new Map();
 // Map to store online users for invites
 const onlineUsers = new Map(); // username -> socket.id
 
+// H2: authenticate every Socket.IO connection using the JWT issued at login.
+// Identity is taken from the verified token, never from client-sent values.
+io.use((socket, next) => {
+  const token = socket.handshake.auth && socket.handshake.auth.token;
+  const user = verifyToken(token);
+  if (!user) {
+    return next(new Error('Authentication required'));
+  }
+  socket.user = user;              // { id, username }
+  socket.username = user.username; // authoritative identity
+  next();
+});
+
 // --- WebSocket Connection ---
 io.on('connection', (socket) => {
-  console.log(`User connected to WebSocket: ${socket.id}`);
+  console.log(`User connected to WebSocket: ${socket.id} (${socket.username})`);
 
   // Helper function to broadcast online users
   const broadcastOnlineCount = () => {
     io.emit('onlineCountUpdate', onlineUsers.size);
   };
 
-  // 0. Register User as Online
-  socket.on('userOnline', (username) => {
-    onlineUsers.set(username, socket.id);
-    socket.username = username;
+  // M2: lightweight per-socket rate limiters for spammable events.
+  const makeLimiter = (max, windowMs) => {
+    const hits = [];
+    return () => {
+      const now = Date.now();
+      while (hits.length && hits[0] <= now - windowMs) hits.shift();
+      if (hits.length >= max) return false;
+      hits.push(now);
+      return true;
+    };
+  };
+  const pointLimiter = makeLimiter(10, 10000);   // max 10 score events / 10s
+  const messageLimiter = makeLimiter(10, 10000); // max 10 chat messages / 10s
+
+  // Identity is established by the auth middleware above — register as online.
+  onlineUsers.set(socket.username, socket.id);
+  broadcastOnlineCount();
+
+  // 0. Kept for client compatibility: the username is derived from the
+  //    verified token, so any client-sent value is ignored.
+  socket.on('userOnline', () => {
+    onlineUsers.set(socket.username, socket.id);
     broadcastOnlineCount();
   });
 
@@ -101,11 +140,11 @@ io.on('connection', (socket) => {
 
   // 1. Handle Room Creation
   socket.on('createRoom', (data) => {
-    const { username, password, mode, cue, avatar } = data;
+    const { password, mode, cue, avatar } = data;
+    const username = socket.username; // H2: from verified token, not client
     const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     socket.join(roomId);
     socket.roomId = roomId; // Store room ID
-    socket.username = username; // Store username
     socket.role = 'Player 1';
     
     roomPlayers.set(roomId, { p1: socket.id, p1Name: username, p1Cue: cue || 'standard', p1Avatar: avatar || '', p2: null, p2Name: null, p2Cue: null, p2Avatar: null, mode: mode || '3-cushion' });
@@ -117,7 +156,8 @@ io.on('connection', (socket) => {
 
   // 2. Handle Joining a Room
   socket.on('joinRoom', (data) => {
-    const { roomId, username, password, cue, avatar } = data;
+    const { roomId, password, cue, avatar } = data;
+    const username = socket.username; // H2: from verified token, not client
     const room = io.sockets.adapter.rooms.get(roomId);
     
     if (room) {
@@ -139,7 +179,6 @@ io.on('connection', (socket) => {
 
       socket.join(roomId);
       socket.roomId = roomId;
-      socket.username = username;
       socket.role = role;
       
       // Get the host's username
@@ -202,25 +241,25 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 5. Handle Scoring points to database
+  // 5. Handle Scoring points to database (identity from the verified token)
   socket.on('addPoint', async () => {
-    if (socket.username) {
-      try {
-        await User.findOneAndUpdate({ username: socket.username }, { $inc: { score: 1 } });
-      } catch (err) {
-        console.error('Failed to update score:', err);
-      }
+    if (!socket.username || !pointLimiter()) return; // M2: throttle
+    try {
+      await User.findOneAndUpdate({ username: socket.username }, { $inc: { score: 1 } });
+    } catch (err) {
+      console.error('Failed to update score:', err);
     }
   });
 
   // 6. Handle Chat Messages
   socket.on('sendMessage', (message) => {
-    if (socket.roomId && socket.username) {
-      io.in(socket.roomId).emit('receiveMessage', {
-        username: socket.username,
-        message: message
-      });
-    }
+    if (!socket.roomId || !socket.username || !messageLimiter()) return; // M2
+    const text = typeof message === 'string' ? message.slice(0, 500) : '';
+    if (!text) return;
+    io.in(socket.roomId).emit('receiveMessage', {
+      username: socket.username,
+      message: text
+    });
   });
 
   // 6.5 Handle Reactions
