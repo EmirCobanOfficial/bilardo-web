@@ -299,7 +299,20 @@ function showLobby(username) {
 
     // Initialize WebSocket ONLY ONCE globally to prevent ghosting/memory leaks
     if (!socket) {
-        socket = io('http://localhost:3000');
+        // H2: authenticate the socket with the JWT issued at login.
+        socket = io('http://localhost:3000', {
+            auth: { token: localStorage.getItem('token') }
+        });
+
+        // The server rejects the handshake when the token is missing/expired.
+        socket.on('connect_error', (err) => {
+            if (err && err.message && err.message.toLowerCase().includes('auth')) {
+                localStorage.removeItem('token');
+                localStorage.removeItem('username');
+                showMessage('Oturumunuz sona erdi, lütfen tekrar giriş yapın.', '#e74c3c');
+                showAuth();
+            }
+        });
 
         let pingInterval;
         socket.on('connect', () => {
@@ -446,13 +459,17 @@ cueSelectInput.addEventListener('change', (e) => {
 saveProfileBtn.addEventListener('click', async () => {
     const avatarUrl = avatarUrlInput.value.trim();
     const equippedCue = cueSelectInput.value;
-    const username = localStorage.getItem('username');
 
     try {
+        // H3: send the JWT; the server derives the user from the token and
+        // updates only that user's profile (username no longer sent in the body).
         const response = await fetch(`${API_URL}/profile`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, avatarUrl, equippedCue })
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({ avatarUrl, equippedCue })
         });
         const data = await response.json();
         if (response.ok) {
@@ -475,7 +492,13 @@ saveProfileBtn.addEventListener('click', async () => {
         socket.on('receiveMessage', (data) => {
             const msgEl = document.createElement('div');
             msgEl.style.marginBottom = '5px';
-            msgEl.innerHTML = `<strong style="color: #f1c40f;">${data.username}:</strong> ${data.message}`;
+            // H1: build with text nodes (never innerHTML) so message content and
+            // usernames cannot inject HTML/JS.
+            const strong = document.createElement('strong');
+            strong.style.color = '#f1c40f';
+            strong.textContent = `${data.username}:`;
+            msgEl.appendChild(strong);
+            msgEl.appendChild(document.createTextNode(' ' + data.message));
             chatMessages.appendChild(msgEl);
             chatMessages.scrollTop = chatMessages.scrollHeight; // Auto-scroll to bottom
         });
@@ -574,7 +597,13 @@ function addPlayerToList(name) {
 function addSystemChatMessage(text, color) {
     const msgEl = document.createElement('div');
     msgEl.style.marginBottom = '5px';
-    msgEl.innerHTML = `<strong style="color: ${color};">Sistem:</strong> ${text}`;
+    // H1: system text can embed user-controlled names (e.g. "<name> katıldı"),
+    // so build with text nodes instead of innerHTML.
+    const strong = document.createElement('strong');
+    strong.style.color = color;
+    strong.textContent = 'Sistem:';
+    msgEl.appendChild(strong);
+    msgEl.appendChild(document.createTextNode(' ' + text));
     chatMessages.appendChild(msgEl);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
